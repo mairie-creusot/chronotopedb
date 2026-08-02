@@ -4,6 +4,7 @@ members = [
     "crates/chronotope-core",
     "crates/chronotope-directory",
     "crates/chronotope-sim",
+    "crates/chronotope-server",
 ]
 
 [workspace.package]

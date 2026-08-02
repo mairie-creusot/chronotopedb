@@ -1,0 +1,21 @@
+[package]
+name = "chronotope-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Binaire d'integration : expose ChronotopeStore en HTTP/WebSocket pour des tests reels (docker-compose), en dehors du perimetre de mesure H1-H4."
+
+[[bin]]
+name = "chronotope-server"
+path = "src/main.rs"
+
+[dependencies]
+chronotope-core.workspace = true
+chronotope-directory.workspace = true
+axum = { version = "0.7", features = ["ws"] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

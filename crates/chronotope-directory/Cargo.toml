@@ -10,6 +10,7 @@ description = "Annuaire entite -> (noeud, cellule) et migration sans transfert d
 chronotope-core.workspace = true
 parking_lot = "0.12"
 thiserror = "1"
+tracing = "0.1"
 
 [dev-dependencies]
 proptest = "1"
