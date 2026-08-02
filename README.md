@@ -13,8 +13,9 @@ transactionnel de référence. **Ce dépôt ne remplace pas SpacetimeDB** — vo
 frontière par cardinalité d'écriture).
 
 **Statut : validé par les faits (H1/H3/H4 mesurées sur le vrai moteur,
-torture-testé, frontière HTTP authentifiée et observable), pas encore
-déployé en production.** Voir
+torture-testé, frontière HTTP authentifiée et observable), déployé et exposé
+en production (`https://pawchat.<domaine>/chronotope`) mais pas encore
+consommé par aucun service.** Voir
 [Ce que ce dépôt garantit](#ce-que-ce-dépôt-garantit--et-ne-garantit-pas)
 plus bas pour une lecture honnête, sans marketing, de ce qui tient et de ce
 qui ne tient pas.
@@ -251,35 +252,49 @@ service `chronotope-dev`), proxifié via Caddy (`/chronotope*`) plutôt
 qu'exposé en port direct — même patron que `spacetimedb-dev`. Aucun autre
 service ne le consomme encore, c'est un banc de test.
 
-### Déploiement en production — patron prévu, non activé
+### Déploiement en production
 
-ChronotopeDB n'est déployé dans aucun `docker-compose.prod.yml` actuellement
-— rien ne le consomme encore en prod, ajouter un conteneur et un secret de
-prod pour zéro bénéfice fonctionnel serait un coût opérationnel réel contre
-un bénéfice nul. Le jour où un vrai consommateur existe, le patron cible est
-celui déjà en place pour `pawchat-spacetimedb` :
+Déployé dans `docker-compose.prod.yml` de PawChat (service
+`pawchat-chronotope`), exposé via Traefik sous `https://pawchat.<domaine>/chronotope`
+— **exposé, mais pas encore consommé** : aucun service pawchat n'écrit ni ne
+lit dans ChronotopeDB pour l'instant, c'est un déploiement d'infrastructure
+seul, réversible, qui n'affecte aucun flux de données réel.
 
 ```yaml
-chronotope:
+pawchat-chronotope:
   image: ghcr.io/mairie-creusot/chronotopedb:latest
   restart: always
   ports:
     - "127.0.0.1:3200:3200"   # jamais de port public direct
   environment:
     CHRONOTOPE_INTERNAL_SECRET: ${CHRONOTOPE_INTERNAL_SECRET}
+  healthcheck:
+    test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3200/health"]
+    interval: 15s
+    timeout: 3s
+    start_period: 5s
+    retries: 3
   networks:
     - traefik_default
   labels:
     - "traefik.enable=true"
-    - "traefik.http.routers.chronotope.rule=Host(`pawchat.${DOMAIN}`) && PathPrefix(`/chronotope`)"
-    - "traefik.http.routers.chronotope.entrypoints=https"
-    - "traefik.http.routers.chronotope.tls=true"
-    - "traefik.http.routers.chronotope.tls.certresolver=${CERT_RESOLVER}"
+    - "traefik.http.routers.pawchat-chronotope.rule=Host(`pawchat.${DOMAIN}`) && PathPrefix(`/chronotope`)"
+    - "traefik.http.routers.pawchat-chronotope.entrypoints=https"
+    - "traefik.http.routers.pawchat-chronotope.tls=true"
+    - "traefik.http.routers.pawchat-chronotope.tls.certresolver=${CERT_RESOLVER}"
+    - "traefik.http.routers.pawchat-chronotope.priority=15"
+    - "traefik.http.services.pawchat-chronotope.loadbalancer.server.port=3200"
+    - "traefik.http.middlewares.chronotope-strip.stripprefix.prefixes=/chronotope"
+    - "traefik.http.routers.pawchat-chronotope.middlewares=chronotope-strip"
 ```
 
-Pas de règle d'allow-list réseau additionnelle (contrairement à ce que
-SpacetimeDB doit compenser pour sa propre absence d'auth) : l'authentification
-applicative (`CHRONOTOPE_INTERNAL_SECRET`) est déjà la vraie porte.
+`stripprefix` est nécessaire : les routes de `chronotope-server` sont des
+chemins bruts (`/health`, `/write`...), pas préfixés par `/chronotope` —
+sans ce middleware, Traefik transmettrait `/chronotope/health` tel quel et
+chronotope-server répondrait 404 partout. Pas de règle d'allow-list réseau
+additionnelle (contrairement à ce que SpacetimeDB doit compenser pour sa
+propre absence d'auth) : l'authentification applicative
+(`CHRONOTOPE_INTERNAL_SECRET`) est déjà la vraie porte.
 
 ## Sécurité
 
