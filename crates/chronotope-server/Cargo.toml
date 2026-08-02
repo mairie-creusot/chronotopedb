@@ -19,6 +19,12 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-
-[dev-dependencies]
-tower = { version = "0.5", features = ["util"] }
+# Comparaison a temps constant du secret partage (voir main.rs::secret_valide) —
+# une seule dependance pure Rust, pas de code natif, pour ne pas alourdir
+# l'image (ecarte `ring` pour la meme raison que l'absence de ca-certificates).
+subtle = "2.6"
+# Deplace depuis [dev-dependencies] : concurrency_limit/load_shed (voir
+# main.rs::router) sont maintenant utilises par le binaire, pas seulement
+# par les tests. Deja une dependance transitive d'axum — aucune nouvelle
+# dependance de fond.
+tower = { version = "0.5", features = ["util", "limit", "load-shed"] }

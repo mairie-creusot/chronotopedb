@@ -263,6 +263,7 @@ impl Directory {
     /// Vue complete de l'annuaire, pour le diagnostic et les tests
     /// (`chronotope-sim` en a besoin pour reconstituer la vue par noeud).
     /// O(n) assume : hors chemin chaud, jamais appele par `migrer`.
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn instantane(&self) -> Vec<(EntityId, Location)> {
         self.entrees
             .read()
