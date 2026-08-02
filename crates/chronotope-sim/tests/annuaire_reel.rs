@@ -1,19 +1,8 @@
 //! H3 contre le VRAI annuaire (`chronotope_directory::Directory`).
 //!
-//! Ce fichier est compile UNIQUEMENT sous la feature `annuaire-reel`, et ses
-//! tests sont de plus `#[ignore]`. Deux verrous, deux raisons distinctes :
-//!
-//! 1. `#[cfg(feature = ...)]` — `chronotope-directory` ne re-exporte pas
-//!    `NodeId`, donc `Location` (dont le champ `node` est de ce type) est
-//!    inconstructible hors du crate : `impl Routeur for Directory` ne compile
-//!    pas. Un `pub use directory::{Directory, Location, NodeId};` dans
-//!    `chronotope-directory/src/lib.rs` leve ce verrou — c'est un ajout
-//!    strictement additif, mais il touche un crate qui n'est pas le mien.
-//! 2. `#[ignore]` — `Directory::new()` et `Directory::migrer` sont encore des
-//!    `todo!()`.
-//!
-//! Pour les activer apres fusion :
-//! `cargo test -p chronotope-sim --features annuaire-reel -- --ignored`.
+//! Ce fichier est compile UNIQUEMENT sous la feature `annuaire-reel`
+//! (desactivee par defaut) : `cargo test -p chronotope-sim --features
+//! annuaire-reel`.
 
 #![cfg(feature = "annuaire-reel")]
 
@@ -30,7 +19,6 @@ fn va_et_vient(t: u64) -> [f32; 3] {
 /// mais avec le vrai annuaire dans la boucle : c'est lui qui doit fournir
 /// l'hysteresis, et donc lui qui decide de la latence de bascule mesuree ici.
 #[test]
-#[ignore = "en attente de l'implementation reelle de ChronotopeEngine/Directory, voir feat/core-engine et feat/directory"]
 fn h3_franchissements_repetes_avec_le_vrai_annuaire() {
     let config = SimConfig::default();
     let noeuds: Vec<ChronotopeEngine> = (0..config.nb_noeuds)

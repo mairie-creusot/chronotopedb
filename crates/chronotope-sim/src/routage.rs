@@ -29,6 +29,8 @@
 
 use std::collections::HashMap;
 
+#[cfg(feature = "annuaire-reel")]
+use chronotope_core::Tick;
 use chronotope_core::{CellId, EntityId};
 
 /// Emplacement d'autorite d'une entite. Volontairement distinct de
@@ -51,10 +53,14 @@ pub trait Routeur {
     /// inscrite a l'annuaire.
     fn ou_est(&mut self, entity: EntityId) -> Option<Emplacement>;
 
-    /// Demande de migration. Renvoie `true` si elle a pris effet, `false` si
-    /// l'hysteresis l'a refusee. Ne transfere AUCUN etat (§4) : c'est une
-    /// ecriture d'annuaire, O(1), rien de plus.
-    fn migrer(&mut self, entity: EntityId, dest: Emplacement) -> bool;
+    /// Demande de migration au tick courant du harnais. Renvoie `true` si
+    /// elle a pris effet, `false` si l'hysteresis l'a refusee. Ne transfere
+    /// AUCUN etat (§4) : c'est une ecriture d'annuaire, O(1), rien de plus.
+    /// `tick` est transmis pour les implementations dont l'hysteresis est
+    /// datee (comme `chronotope_directory::Directory`, dont le contrat exige
+    /// un `Tick`) ; `AnnuaireMemoire` ci-dessous l'ignore, son hysteresis
+    /// etant comptee en tentatives consecutives plutot qu'en ticks ecoules.
+    fn migrer(&mut self, entity: EntityId, dest: Emplacement, tick: u64) -> bool;
 }
 
 /// Annuaire en memoire a hysteresis par delai minimum.
@@ -128,7 +134,7 @@ impl Routeur for AnnuaireMemoire {
         skip(self),
         fields(entity = entity.0, noeud = dest.noeud, cellule = dest.cellule.0)
     )]
-    fn migrer(&mut self, entity: EntityId, dest: Emplacement) -> bool {
+    fn migrer(&mut self, entity: EntityId, dest: Emplacement, _tick: u64) -> bool {
         match self.entrees.get_mut(&entity) {
             None => {
                 self.entrees.insert(
@@ -180,12 +186,16 @@ impl Routeur for chronotope_directory::Directory {
         })
     }
 
-    fn migrer(&mut self, entity: EntityId, dest: Emplacement) -> bool {
+    fn migrer(&mut self, entity: EntityId, dest: Emplacement, tick: u64) -> bool {
         let cible = chronotope_directory::Location {
             node: chronotope_directory::NodeId(dest.noeud),
             cell: dest.cellule,
         };
-        chronotope_directory::Directory::migrer(self, entity, cible);
+        // L'hysteresis de Directory refuse par erreur (RefusHysteresis), pas
+        // par booleen : un refus n'est pas une panne, `migrer` du trait
+        // Routeur renvoie simplement `false` dans les deux cas (§ doc du
+        // trait : l'appelant relit toujours `ou_est`/`locate`).
+        let _ = chronotope_directory::Directory::migrer(self, entity, cible, Tick(tick));
         chronotope_directory::Directory::locate(self, entity) == Some(cible)
     }
 }
@@ -204,17 +214,17 @@ mod tests {
     #[test]
     fn la_premiere_inscription_est_toujours_accordee() {
         let mut a = AnnuaireMemoire::new(5);
-        assert!(a.migrer(EntityId(1), emp(0, 0)));
+        assert!(a.migrer(EntityId(1), emp(0, 0), 0));
         assert_eq!(a.ou_est(EntityId(1)), Some(emp(0, 0)));
     }
 
     #[test]
     fn l_hysteresis_retarde_la_bascule_d_un_nombre_exact_de_tentatives() {
         let mut a = AnnuaireMemoire::new(3);
-        a.migrer(EntityId(1), emp(0, 0));
-        assert!(!a.migrer(EntityId(1), emp(1, 1)));
-        assert!(!a.migrer(EntityId(1), emp(1, 1)));
-        assert!(a.migrer(EntityId(1), emp(1, 1)));
+        a.migrer(EntityId(1), emp(0, 0), 0);
+        assert!(!a.migrer(EntityId(1), emp(1, 1), 1));
+        assert!(!a.migrer(EntityId(1), emp(1, 1), 2));
+        assert!(a.migrer(EntityId(1), emp(1, 1), 3));
         assert_eq!(a.ou_est(EntityId(1)), Some(emp(1, 1)));
     }
 
@@ -222,19 +232,19 @@ mod tests {
     fn sans_hysteresis_la_bascule_est_immediate() {
         for h in [0u32, 1] {
             let mut a = AnnuaireMemoire::new(h);
-            a.migrer(EntityId(1), emp(0, 0));
-            assert!(a.migrer(EntityId(1), emp(1, 1)));
+            a.migrer(EntityId(1), emp(0, 0), 0);
+            assert!(a.migrer(EntityId(1), emp(1, 1), 1));
         }
     }
 
     #[test]
     fn une_oscillation_frontaliere_est_amortie() {
         let mut a = AnnuaireMemoire::new(4);
-        a.migrer(EntityId(1), emp(0, 0));
+        a.migrer(EntityId(1), emp(0, 0), 0);
         for t in 0..100 {
             let cible = if t % 2 == 0 { emp(1, 1) } else { emp(0, 0) };
             if a.ou_est(EntityId(1)) != Some(cible) {
-                a.migrer(EntityId(1), cible);
+                a.migrer(EntityId(1), cible, t);
             }
         }
         assert!(
@@ -247,8 +257,8 @@ mod tests {
     #[test]
     fn migrer_vers_l_emplacement_courant_est_un_no_op_reussi() {
         let mut a = AnnuaireMemoire::new(3);
-        a.migrer(EntityId(1), emp(0, 0));
-        assert!(a.migrer(EntityId(1), emp(0, 0)));
+        a.migrer(EntityId(1), emp(0, 0), 0);
+        assert!(a.migrer(EntityId(1), emp(0, 0), 1));
         assert_eq!(a.migrations_refusees(), 0);
     }
 }

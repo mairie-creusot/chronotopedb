@@ -1,11 +1,7 @@
 //! H3 et H4 contre le VRAI substrat (`chronotope_core::ChronotopeEngine`).
-//!
-//! Tous ces tests sont `#[ignore]` tant que `ChronotopeEngine` est un
-//! squelette a `todo!()` : ils compilent, ils sont listes, ils paniqueraient a
-//! la premiere ecriture. Les de-marquer est la derniere etape de la fusion des
-//! branches `feat/core-engine`, `feat/directory` et `feat/sim-harness` — a ce
-//! moment-la ils deviennent la mesure qui compte, celle qui porte sur le
-//! substrat reel et pas sur un double.
+//! `MultiNodeSim` par defaut est deja `MultiNodeSim<ChronotopeEngine,
+//! AnnuaireMemoire>` (voir `src/harness.rs`) : ce fichier ne fait donc
+//! qu'appeler `avec_config` sans parametre de type explicite.
 //!
 //! Les memes proprietes sont deja verifiees MAINTENANT contre un double de
 //! test en memoire, dans les tests unitaires de `src/harness.rs` : ce fichier
@@ -37,7 +33,6 @@ fn dans_b(_t: u64) -> [f32; 3] {
 /// de noeud) ne doit jamais etre dupliquee, jamais perdue, et sa latence de
 /// bascule doit rester bornee par l'hysteresis configuree.
 #[test]
-#[ignore = "en attente de l'implementation reelle de ChronotopeEngine/Directory, voir feat/core-engine et feat/directory"]
 fn h3_franchissements_repetes_sur_le_moteur_reel() {
     let mut sim = MultiNodeSim::avec_config(SimConfig {
         hysteresis_ticks: 3,
@@ -57,10 +52,15 @@ fn h3_franchissements_repetes_sur_le_moteur_reel() {
 }
 
 /// H3, verification sur le CONTENU scelle du moteur reel plutot que sur les
-/// compteurs du harnais : a chaque tick scelle, l'entite est presente dans
-/// exactement un chronotope, sur exactement un noeud.
+/// compteurs du harnais : a chaque tick scelle ENCORE RETENU par l'anneau,
+/// l'entite est presente dans exactement un chronotope, sur exactement un
+/// noeud.
+///
+/// Bornee a la fenetre `ticks_retenus()` (l'anneau memoire §6, T0) : le
+/// moteur reel, contrairement au double en memoire, recycle deliberement les
+/// ticks les plus anciens — interroger un tick sorti de la fenetre est une
+/// erreur du test, pas une duplication/perte a detecter par H3.
 #[test]
-#[ignore = "en attente de l'implementation reelle de ChronotopeEngine/Directory, voir feat/core-engine et feat/directory"]
 fn h3_le_contenu_scelle_du_moteur_reel_ne_duplique_ni_ne_perd() {
     let mut sim = MultiNodeSim::avec_config(SimConfig::default());
     sim.track(EntityId(1), va_et_vient);
@@ -68,7 +68,17 @@ fn h3_le_contenu_scelle_du_moteur_reel_ne_duplique_ni_ne_perd() {
 
     let room = RoomId(0);
     let cellules: Vec<CellId> = (0..3).map(CellId).collect();
-    for tick in 0..198u64 {
+    // Dernier tick reellement ecrit : `executer(200)` traite les ticks
+    // 0..199, `tick_courant()` vaut 200 apres coup. On laisse une marge de 2
+    // ticks avant ce bord (l'horizon nominal peut retarder le sceau) et on ne
+    // remonte que sur la fenetre `ticks_retenus()` de l'anneau (§6) — au-dela,
+    // le moteur reel a legitimement recycle le slot, contrairement au double.
+    let dernier_ecrit = sim.tick_courant() - 1;
+    let marge_horizon = 2;
+    let dernier_verifiable = dernier_ecrit.saturating_sub(marge_horizon);
+    let fenetre = sim.noeuds()[0].ticks_retenus();
+    let premier_verifiable = dernier_ecrit.saturating_sub(fenetre - 1);
+    for tick in premier_verifiable..=dernier_verifiable {
         let mut presences = 0;
         for noeud in sim.noeuds() {
             for chrono in noeud.lire(room, &cellules, Tick(tick)) {
@@ -88,7 +98,6 @@ fn h3_le_contenu_scelle_du_moteur_reel_ne_duplique_ni_ne_perd() {
 /// calme dans la MEME simulation. C'est la propriete §9 point 1, celle qu'une
 /// erreur d'implementation casse le plus silencieusement.
 #[test]
-#[ignore = "en attente de l'implementation reelle de ChronotopeEngine/Directory, voir feat/core-engine et feat/directory"]
 fn h4_localite_de_la_degradation_sur_le_moteur_reel() {
     let mut sim = MultiNodeSim::avec_config(SimConfig::default());
     for i in 0..40 {
@@ -114,7 +123,6 @@ fn h4_localite_de_la_degradation_sur_le_moteur_reel() {
 /// H4 — la cadence doit descendre par paliers 20 -> 10 -> 5 Hz sous charge
 /// croissante, jamais s'arreter net a un plafond.
 #[test]
-#[ignore = "en attente de l'implementation reelle de ChronotopeEngine/Directory, voir feat/core-engine et feat/directory"]
 fn h4_paliers_sous_charge_croissante_sur_le_moteur_reel() {
     fn rejoint_a_au_tick_100(t: u64) -> [f32; 3] {
         if t >= 100 {
@@ -165,7 +173,6 @@ fn h4_paliers_sous_charge_croissante_sur_le_moteur_reel() {
 /// ci-dessus deviennent ininterpretables — d'ou un test dedie, separe des
 /// scenarios.
 #[test]
-#[ignore = "en attente de l'implementation reelle de ChronotopeEngine/Directory, voir feat/core-engine et feat/directory"]
 fn le_moteur_reel_honore_les_clauses_dont_le_harnais_depend() {
     use chronotope_core::{ChronotopeEngine, Horizon, Pose, WriteError};
 

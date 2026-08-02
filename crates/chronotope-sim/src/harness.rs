@@ -433,14 +433,15 @@ impl<S: ChronotopeStore, R: Routeur> MultiNodeSim<S, R> {
         cellule_geo: CellId,
         emplacement_geo: Emplacement,
     ) -> Emplacement {
+        let t = self.tick;
         match self.routeur.ou_est(entity) {
             None => {
-                self.routeur.migrer(entity, emplacement_geo);
+                self.routeur.migrer(entity, emplacement_geo, t);
                 self.routeur.ou_est(entity).unwrap_or(emplacement_geo)
             }
             Some(actuel) if actuel.cellule != cellule_geo => {
                 self.migrations_tentees += 1;
-                if self.routeur.migrer(entity, emplacement_geo) {
+                if self.routeur.migrer(entity, emplacement_geo, t) {
                     self.migrations_accordees += 1;
                 }
                 self.routeur.ou_est(entity).unwrap_or(actuel)

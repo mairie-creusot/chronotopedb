@@ -40,7 +40,9 @@ async fn main() {
     // : un log doit dire QUI a parle sans avoir a deviner, c'est la premiere
     // moitie de "super tracable".
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
         .with_target(true)
         .with_line_number(true)
         .with_thread_ids(true)
@@ -104,7 +106,10 @@ async fn write(
         },
     );
     match result {
-        Ok(()) => Json(WriteResponse { ok: true, error: None }),
+        Ok(()) => Json(WriteResponse {
+            ok: true,
+            error: None,
+        }),
         Err(e) => Json(WriteResponse {
             ok: false,
             error: Some(e.to_string()),
