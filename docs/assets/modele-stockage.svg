@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 560" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+    </marker>
+    <marker id="arrGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#0d9488"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="920" height="560" fill="#ffffff"/>
+  <text x="24" y="34" font-size="15" font-weight="600" fill="#0f172a">L'unite de stockage : la ligne contre le couple (cellule, tick)</text>
+  <text x="24" y="54" font-size="12" fill="#64748b">40 avatars ecrivent leur pose dans la meme cellule, au meme tick — le regime "agglomere" que H1 cible.</text>
+
+  <!-- LEFT: row store -->
+  <text x="60" y="96" font-size="13" font-weight="700" fill="#b91c1c">NaiveRowStore — une ecriture = une ligne</text>
+  <g stroke="#cbd5e1" stroke-width="1" fill="#fef2f2">
+    <rect x="60" y="112" width="360" height="26" rx="3"/>
+    <rect x="60" y="146" width="360" height="26" rx="3"/>
+    <rect x="60" y="180" width="360" height="26" rx="3"/>
+    <rect x="60" y="214" width="360" height="26" rx="3"/>
+    <rect x="60" y="248" width="360" height="26" rx="3"/>
+  </g>
+  <text x="72" y="129" font-size="11" fill="#7f1d1d" font-family="Consolas,Menlo,monospace">entity=17 cell=4 tick=91 pos=(...)</text>
+  <text x="72" y="163" font-size="11" fill="#7f1d1d" font-family="Consolas,Menlo,monospace">entity=03 cell=4 tick=91 pos=(...)</text>
+  <text x="72" y="197" font-size="11" fill="#7f1d1d" font-family="Consolas,Menlo,monospace">entity=29 cell=4 tick=91 pos=(...)</text>
+  <text x="72" y="231" font-size="11" fill="#7f1d1d" font-family="Consolas,Menlo,monospace">entity=02 cell=4 tick=91 pos=(...)</text>
+  <text x="72" y="265" font-size="11" fill="#94a3b8">... 36 lignes de plus, meme cellule/tick</text>
+
+  <!-- scattered arrows into rows -->
+  <path d="M470,300 C 380,280 300,180 420,125" stroke="#94a3b8" stroke-width="1.2" fill="none" marker-end="url(#arr)"/>
+  <path d="M470,300 C 400,290 320,220 420,159" stroke="#94a3b8" stroke-width="1.2" fill="none" marker-end="url(#arr)"/>
+  <path d="M470,300 C 420,300 380,250 420,193" stroke="#94a3b8" stroke-width="1.2" fill="none" marker-end="url(#arr)"/>
+  <path d="M470,300 C 440,300 400,260 420,227" stroke="#94a3b8" stroke-width="1.2" fill="none" marker-end="url(#arr)"/>
+  <text x="380" y="318" font-size="11" fill="#94a3b8">40 ecritures, 40 adresses distinctes,</text>
+  <text x="380" y="334" font-size="11" fill="#94a3b8">puis un scan pour reconstituer la cellule</text>
+
+  <!-- RIGHT: chronotope -->
+  <text x="530" y="96" font-size="13" font-weight="700" fill="#0f766e">ChronotopeEngine — un ajout sequentiel contigu</text>
+  <rect x="530" y="112" width="360" height="220" rx="8" fill="#f0fdfa" stroke="#0d9488" stroke-width="1.5"/>
+  <text x="548" y="136" font-size="11" fill="#0f766e" font-family="Consolas,Menlo,monospace">Chronotope { room:0, cell:4, tick:91 }</text>
+  <line x1="548" y1="146" x2="872" y2="146" stroke="#99f6e4"/>
+  <text x="548" y="166" font-size="11" fill="#134e4a" font-family="Consolas,Menlo,monospace">[ (17,pos) (03,pos) (29,pos) (02,pos)</text>
+  <text x="548" y="184" font-size="11" fill="#134e4a" font-family="Consolas,Menlo,monospace">  ... 36 entrees de plus, triees par EntityId ]</text>
+  <text x="548" y="210" font-size="11" fill="#0d9488">journal: Vec&lt;(EntityId, Pose)&gt;, un seul Mutex</text>
+  <text x="548" y="228" font-size="11" fill="#0d9488">pour toute la cellule (anneau de 64 ticks)</text>
+  <text x="548" y="254" font-size="11" fill="#64748b">A la fermeture du tick : sceller() trie + dedup</text>
+  <text x="548" y="270" font-size="11" fill="#64748b">(LWW par entite) — la structure passe de</text>
+  <text x="548" y="286" font-size="11" fill="#64748b">"CRDT degenere, 1 seul ecrivain" a "journal immuable".</text>
+  <text x="548" y="310" font-size="11" fill="#0f766e">Une seule ecriture memoire par avatar, dans un</text>
+
+  <path d="M580,340 L580,332" stroke="#0d9488" stroke-width="1.2" marker-end="url(#arrGreen)"/>
+
+  <!-- H1 results -->
+  <line x1="24" y1="368" x2="896" y2="368" stroke="#e2e8f0"/>
+  <text x="24" y="392" font-size="13" font-weight="700" fill="#0f172a">H1 — gain mesure (cargo bench -p chronotope-core), regime agglomere</text>
+  <text x="24" y="410" font-size="12" fill="#64748b">"reduit le cout d'ecriture d'au moins 3x en regime agglomere" — refutee si &lt; 3x. Seuil de test : 40 avatars/cellule.</text>
+
+  <g font-family="Consolas,Menlo,monospace" font-size="12">
+    <text x="40" y="444" fill="#334155">40 avatars/cellule</text>
+    <rect x="220" y="430" width="301.4" height="16" fill="#fecaca"/>
+    <rect x="220" y="430" width="100" height="16" fill="#5eead4"/>
+    <text x="530" y="443" fill="#0f766e" font-weight="700">3.01x</text>
+
+    <text x="40" y="470" fill="#334155">80 avatars/cellule</text>
+    <rect x="220" y="456" width="281" height="16" fill="#fecaca"/>
+    <rect x="220" y="456" width="100" height="16" fill="#5eead4"/>
+    <text x="530" y="469" fill="#0f766e" font-weight="700">2.81x</text>
+
+    <text x="40" y="496" fill="#334155">200 avatars/cellule</text>
+    <rect x="220" y="482" width="346.7" height="16" fill="#fecaca"/>
+    <rect x="220" y="482" width="100" height="16" fill="#5eead4"/>
+    <text x="595" y="495" fill="#0f766e" font-weight="700">3.47x</text>
+  </g>
+  <text x="220" y="522" font-size="11" fill="#94a3b8">temps CPU relatif — barre courte = plus rapide (chronotope, en sarcelle) contre ligne (en rouge)</text>
+  <text x="24" y="546" font-size="11" fill="#94a3b8">Mesure sur l'arbre integre le 2026-08-02, 100 echantillons/point, criterion. Regime disperse (1 entite/cellule) : 2.12x-2.60x — H1 vise explicitement le cas agglomere.</text>
+</svg>

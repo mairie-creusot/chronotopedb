@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 480" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5b6472"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="920" height="480" fill="#ffffff"/>
+
+  <text x="24" y="34" font-size="15" font-weight="600" fill="#0f172a">Workspace ChronotopeDB — 4 crates, dependances reelles (Cargo.toml)</text>
+  <text x="24" y="54" font-size="12" fill="#64748b">Seul chronotope-server est une frontiere de confiance (docs/conventions.md) : c'est le seul crate qui valide une entree non fiable.</text>
+
+  <!-- chronotope-sim -->
+  <rect x="70" y="96" width="330" height="96" rx="8" fill="#f0fdfa" stroke="#0d9488" stroke-width="1.5"/>
+  <text x="90" y="126" font-size="15" font-weight="700" fill="#0f172a" font-family="Consolas,Menlo,monospace">chronotope-sim</text>
+  <text x="90" y="148" font-size="12" fill="#334155">Harnais de simulation multi-noeud, en memoire,</text>
+  <text x="90" y="164" font-size="12" fill="#334155">sans reseau reel — teste H3 et H4.</text>
+  <text x="90" y="182" font-size="11" fill="#0d9488">27 tests + 5 sur le vrai moteur (moteur_reel.rs)</text>
+
+  <!-- chronotope-server -->
+  <rect x="520" y="96" width="330" height="96" rx="8" fill="#fef2f2" stroke="#dc2626" stroke-width="1.5"/>
+  <text x="540" y="126" font-size="15" font-weight="700" fill="#0f172a" font-family="Consolas,Menlo,monospace">chronotope-server</text>
+  <text x="540" y="148" font-size="12" fill="#334155">Binaire HTTP (axum) — /health /write /seal /read.</text>
+  <text x="540" y="164" font-size="12" fill="#334155">Seul point d'entree pour une donnee non fiable.</text>
+  <text x="540" y="182" font-size="11" fill="#dc2626">8 tests — dont la validation room/cell hors domaine</text>
+
+  <!-- arrows down -->
+  <path d="M180,192 L180,270" stroke="#5b6472" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M290,192 L470,300" stroke="#5b6472" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M630,192 L470,300" stroke="#5b6472" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M740,192 L740,270" stroke="#5b6472" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- chronotope-core -->
+  <rect x="70" y="272" width="330" height="120" rx="8" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="90" y="302" font-size="15" font-weight="700" fill="#0f172a" font-family="Consolas,Menlo,monospace">chronotope-core</text>
+  <text x="90" y="324" font-size="12" fill="#334155">Le substrat : ChronotopeEngine (cellule-tick,</text>
+  <text x="90" y="340" font-size="12" fill="#334155">anneau de 64 ticks) + NaiveRowStore (temoin H1).</text>
+  <text x="90" y="356" font-size="12" fill="#334155">#![deny(unsafe_code)] — zero unsafe.</text>
+  <text x="90" y="378" font-size="11" fill="#2563eb">46 tests (concurrence, adversarial, compaction)</text>
+
+  <!-- chronotope-directory -->
+  <rect x="520" y="272" width="330" height="120" rx="8" fill="#fdf4ff" stroke="#a21caf" stroke-width="1.5"/>
+  <text x="540" y="302" font-size="15" font-weight="700" fill="#0f172a" font-family="Consolas,Menlo,monospace">chronotope-directory</text>
+  <text x="540" y="324" font-size="12" fill="#334155">Annuaire entite -&gt; (noeud, cellule). Migration</text>
+  <text x="540" y="340" font-size="12" fill="#334155">sans transfert d'etat, hysteresis anti-thrashing.</text>
+  <text x="540" y="356" font-size="12" fill="#334155">Aucune connaissance du contenu d'un chronotope.</text>
+  <text x="540" y="378" font-size="11" fill="#a21caf">31 tests (thrashing, O(1), 150k entites, 40 threads)</text>
+
+  <!-- footer -->
+  <line x1="24" y1="424" x2="896" y2="424" stroke="#e2e8f0"/>
+  <text x="24" y="448" font-size="11" fill="#64748b">117 tests au total (cargo test --workspace --all-targets) + 1 doctest — cargo clippy --workspace -D warnings et cargo fmt --check propres.</text>
+  <text x="24" y="466" font-size="11" fill="#64748b">chronotope-sim -&gt; chronotope-directory reel derriere la feature "annuaire-reel" (desactivee par defaut).</text>
+</svg>
