@@ -189,16 +189,14 @@ async fn gerer_surcharge(erreur: tower::BoxError) -> Response {
         .into_response()
 }
 
-/// Sous-routeur "protege" : `/write` `/seal` `/read` `/metrics`, derriere
-/// `authentifier`. Construit et etate (`with_state`) a part parce que
-/// `fallback_service` (voir `router`) exige un `Service` deja complet.
+/// Sous-routeur "protege" : `/write` `/seal` `/read` `/metrics`, SANS
+/// authentification a ce niveau — voir `router` pour pourquoi.
 fn router_protege(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/write", post(write))
         .route("/seal", post(seal))
         .route("/read", get(read))
         .route("/metrics", get(metrics_handler))
-        .route_layer(middleware::from_fn_with_state(state.clone(), authentifier))
         .with_state(state)
 }
 
@@ -209,20 +207,30 @@ fn router_protege(state: Arc<AppState>) -> Router {
 /// `/health` reste sur ce routeur de premier niveau, hors de toute couche de
 /// resilience (il doit repondre vite meme si le reste est sature — verifie
 /// par `sante_repond_pendant_la_saturation` plus bas). Le reste passe par
-/// `router_protege` (donc par `authentifier` d'abord) puis par le filet
-/// load-shed/concurrency-limit, monte en `fallback_service` plutot que via
-/// `Router::layer()` sur le sous-routeur : applique de cette derniere
-/// facon, `load_shed`+`concurrency_limit` ne partageaient PAS leur etat
-/// entre deux requetes (verifie empiriquement — la limite n'etait jamais
-/// appliquee, quel que soit le nombre de requetes concurrentes). Enveloppes
-/// autour d'un `Router` deja completement construit puis montes en
-/// `fallback_service`, ils fonctionnent correctement — c'est aussi le
-/// patron documente par axum pour composer un `Router` avec des couches
-/// falibles comme `load_shed`/`timeout`.
+/// `authentifier` PUIS le filet load-shed/concurrency-limit, les DEUX
+/// montes en `fallback_service` en enveloppant un `Router` deja
+/// completement construit — jamais via `Router::layer()`/`.route_layer()`
+/// sur le sous-routeur lui-meme. Deux bugs reels, verifies empiriquement,
+/// justifient ce choix plutot que l'approche "plus simple" :
+/// - `load_shed`+`concurrency_limit` appliques par `Router::layer()` ne
+///   partageaient PAS leur etat entre deux requetes (la limite n'etait
+///   jamais appliquee, quel que soit le nombre de requetes concurrentes).
+/// - `authentifier` applique par `.route_layer()` sur `router_protege`
+///   NE PROTEGEAIT PAS une requete sans `Content-Type` (ou avec un
+///   mauvais) : elle atteignait le rejet `415` de l'extracteur `Json`
+///   SANS jamais passer par `authentifier` (aucune ligne de log,
+///   confirme via `docker logs` en conditions reelles) — `route_layer`
+///   n'enveloppe pas tous les chemins de rejet internes d'axum.
+///
+/// Enveloppes autour d'un `Router` deja construit et montes en
+/// `fallback_service`, les deux fonctionnent correctement — c'est aussi
+/// le patron documente par axum pour composer un `Router` avec des
+/// couches falibles comme `load_shed`/`timeout`.
 fn router(state: Arc<AppState>) -> Router {
     let limite = limite_concurrence();
 
     let protege = ServiceBuilder::new()
+        .layer(middleware::from_fn_with_state(state.clone(), authentifier))
         .layer(HandleErrorLayer::new(gerer_surcharge))
         .load_shed()
         .concurrency_limit(limite)
@@ -567,6 +575,25 @@ mod tests {
             response.headers().get(header::WWW_AUTHENTICATE).unwrap(),
             "Bearer"
         );
+    }
+
+    /// Regression : une requete SANS aucun header (ni `Authorization` ni
+    /// `Content-Type`, ni corps) atteignait auparavant le rejet `415` de
+    /// l'extracteur `Json` sans jamais passer par `authentifier` — parce
+    /// que `.route_layer()` sur le sous-routeur "protege" n'enveloppait
+    /// pas ce chemin de rejet interne d'axum. Confirme en conditions
+    /// reelles (`docker logs` ne montrait AUCUNE ligne d'authentification
+    /// pour cette requete). Corrige en deplacant `authentifier` sur le
+    /// `Router` deja construit (voir `router`), pas sur le sous-routeur.
+    #[tokio::test]
+    async fn write_sans_aucun_header_est_rejete_401_pas_415() {
+        let request = HttpRequest::builder()
+            .method("POST")
+            .uri("/write")
+            .body(Body::empty())
+            .unwrap();
+        let response = app().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]

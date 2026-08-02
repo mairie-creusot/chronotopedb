@@ -45,9 +45,9 @@ lecture nécessaire avant de toucher au code. Voir
 | [`chronotope-core`](crates/chronotope-core) | Le substrat : `ChronotopeStore` (trait), `ChronotopeEngine` (implémentation cellule-tick, anneau de 64 ticks/cellule), `NaiveRowStore` (témoin de comparaison pour H1). `#![deny(unsafe_code)]`. | 46 |
 | [`chronotope-directory`](crates/chronotope-directory) | Annuaire entité → (nœud, cellule), migration **sans transfert d'état**, hystérésis anti-thrashing. | 31 + 1 doctest |
 | [`chronotope-sim`](crates/chronotope-sim) | Harnais de simulation multi-nœud en mémoire (sans réseau réel) pour tester H3 (migration) et H4 (dégradation sous charge), contre un double **et** contre le vrai moteur. | 32 |
-| [`chronotope-server`](crates/chronotope-server) | Binaire HTTP (axum) exposant `ChronotopeEngine` — `/health` `/write` `/seal` `/read` `/metrics`. Seule frontière de confiance du dépôt : authentification, métriques, filet de résilience. | 31 |
+| [`chronotope-server`](crates/chronotope-server) | Binaire HTTP (axum) exposant `ChronotopeEngine` — `/health` `/write` `/seal` `/read` `/metrics`. Seule frontière de confiance du dépôt : authentification, métriques, filet de résilience. | 32 |
 
-**140 tests** (`cargo test --workspace --all-targets`) + 1 doctest, tous
+**141 tests** (`cargo test --workspace --all-targets`) + 1 doctest, tous
 verts. `cargo clippy --workspace --all-targets -- -D warnings` et
 `cargo fmt --all -- --check` propres. `cargo audit --deny warnings` : **0
 vulnérabilité sur 167 dépendances**.
@@ -305,7 +305,7 @@ applicative (`CHRONOTOPE_INTERNAL_SECRET`) est déjà la vraie porte.
 ## Développement
 
 ```bash
-cargo test --workspace --all-targets   # 140 tests
+cargo test --workspace --all-targets   # 141 tests
 cargo test --workspace --doc           # doctests
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all -- --check

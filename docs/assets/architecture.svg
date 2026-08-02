@@ -22,7 +22,7 @@
   <text x="540" y="126" font-size="15" font-weight="700" fill="#0f172a" font-family="Consolas,Menlo,monospace">chronotope-server</text>
   <text x="540" y="148" font-size="12" fill="#334155">/health /write /seal /read /metrics — Bearer + resilience.</text>
   <text x="540" y="164" font-size="12" fill="#334155">Seul point d'entree pour une donnee non fiable.</text>
-  <text x="540" y="182" font-size="11" fill="#dc2626">31 tests — auth, metrics, load-shed, hors domaine</text>
+  <text x="540" y="182" font-size="11" fill="#dc2626">32 tests — auth, metrics, load-shed, hors domaine</text>
 
   <!-- arrows down -->
   <path d="M180,192 L180,270" stroke="#5b6472" stroke-width="1.5" marker-end="url(#arrow)"/>
@@ -48,6 +48,6 @@
 
   <!-- footer -->
   <line x1="24" y1="424" x2="896" y2="424" stroke="#e2e8f0"/>
-  <text x="24" y="448" font-size="11" fill="#64748b">140 tests au total (cargo test --workspace --all-targets) + 1 doctest — cargo clippy --workspace -D warnings et cargo fmt --check propres.</text>
+  <text x="24" y="448" font-size="11" fill="#64748b">141 tests au total (cargo test --workspace --all-targets) + 1 doctest — cargo clippy --workspace -D warnings et cargo fmt --check propres.</text>
   <text x="24" y="466" font-size="11" fill="#64748b">chronotope-sim -&gt; chronotope-directory reel derriere la feature "annuaire-reel" (desactivee par defaut).</text>
 </svg>
