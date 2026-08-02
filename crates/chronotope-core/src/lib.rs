@@ -27,11 +27,14 @@
 //! transactionnel (SpacetimeDB, chez PawChat). Voir §4 du document source
 //! pour le critere de frontiere.
 
+#![deny(unsafe_code)]
+
+mod diffusion;
 mod engine;
 mod naive;
 mod store;
 
-pub use engine::ChronotopeEngine;
+pub use engine::{ChronotopeEngine, ANNEAU, CELLULES_PAR_SALLE, SALLES_MAX};
 pub use naive::NaiveRowStore;
 pub use store::ChronotopeStore;
 

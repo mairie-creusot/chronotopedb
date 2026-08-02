@@ -10,16 +10,70 @@
 //! scellement et le refus d'ecriture apres coup — pour que la comparaison de
 //! benchmark soit honnete (memes garanties, seule la structure de stockage
 //! differe).
+//!
+//! Un seul ecart avec le modele "une ligne, un point" : un index secondaire
+//! `(room, cell, tick) -> [entites]`, maintenu a l'insertion d'une ligne
+//! NEUVE uniquement. Sans lui, `sceller` devrait balayer toute la table et le
+//! banc mesurerait un balayage quadratique plutot que le cout d'ecriture par
+//! ligne — toute base a ligne reelle a cet index, et son entretien (une
+//! amplification d'ecriture) fait partie du cout honnete du modele.
+
+use std::collections::{HashMap, HashSet};
 
 use crossbeam_channel::Receiver;
+use parking_lot::Mutex;
 
-use crate::{store::ChronotopeStore, Chronotope, CellId, EntityId, Pose, RoomId, Tick, WriteError};
+use crate::diffusion::Diffuseur;
+use crate::{store::ChronotopeStore, CellId, Chronotope, EntityId, Pose, RoomId, Tick, WriteError};
 
-pub struct NaiveRowStore;
+type Cle = (RoomId, CellId, Tick);
+type Ligne = (RoomId, CellId, Tick, EntityId);
+
+#[derive(Default)]
+struct Table {
+    lignes: HashMap<Ligne, Pose>,
+    index: HashMap<Cle, Vec<EntityId>>,
+    scelles: HashSet<Cle>,
+}
+
+pub struct NaiveRowStore {
+    table: Mutex<Table>,
+    diffuseur: Diffuseur,
+}
 
 impl NaiveRowStore {
     pub fn new() -> Self {
-        Self
+        Self {
+            table: Mutex::new(Table::default()),
+            diffuseur: Diffuseur::default(),
+        }
+    }
+
+    /// Remet le store a vide EN CONSERVANT les allocations des tables. Pendant
+    /// de `ChronotopeEngine::vider`, pour que les deux cotes du banc H1
+    /// rejouent des trames dans les memes conditions d'allocateur.
+    pub fn vider(&self) {
+        let mut table = self.table.lock();
+        table.lignes.clear();
+        table.index.clear();
+        table.scelles.clear();
+    }
+
+    fn assembler(table: &Table, cle: Cle) -> Vec<(EntityId, Pose)> {
+        let Some(entites) = table.index.get(&cle) else {
+            return Vec::new();
+        };
+        let mut assemble: Vec<(EntityId, Pose)> = entites
+            .iter()
+            .filter_map(|entite| {
+                table
+                    .lignes
+                    .get(&(cle.0, cle.1, cle.2, *entite))
+                    .map(|pose| (*entite, *pose))
+            })
+            .collect();
+        assemble.sort_unstable_by_key(|(entite, _)| *entite);
+        assemble
     }
 }
 
@@ -30,26 +84,69 @@ impl Default for NaiveRowStore {
 }
 
 impl ChronotopeStore for NaiveRowStore {
+    #[tracing::instrument(level = "trace", skip_all, fields(room = room.0, cell = cell.0, tick = tick.0, entity = entity.0))]
     fn ecrire(
         &self,
-        _room: RoomId,
-        _cell: CellId,
-        _tick: Tick,
-        _entity: EntityId,
-        _pose: Pose,
+        room: RoomId,
+        cell: CellId,
+        tick: Tick,
+        entity: EntityId,
+        pose: Pose,
     ) -> Result<(), WriteError> {
-        todo!("NaiveRowStore::ecrire — une ligne par (tick, entity), verrou global ou par shard simple, deliberement pas optimise")
+        let cle = (room, cell, tick);
+        let mut table = self.table.lock();
+        if table.scelles.contains(&cle) {
+            return Err(WriteError::AlreadySealed(room, cell, tick));
+        }
+        if table
+            .lignes
+            .insert((room, cell, tick, entity), pose)
+            .is_none()
+        {
+            table.index.entry(cle).or_default().push(entity);
+        }
+        Ok(())
     }
 
-    fn sceller(&self, _room: RoomId, _cell: CellId, _tick: Tick) -> Chronotope {
-        todo!("NaiveRowStore::sceller")
+    #[tracing::instrument(level = "debug", skip_all, fields(room = room.0, cell = cell.0, tick = tick.0))]
+    fn sceller(&self, room: RoomId, cell: CellId, tick: Tick) -> Chronotope {
+        let cle = (room, cell, tick);
+        let entities = {
+            let mut table = self.table.lock();
+            table.scelles.insert(cle);
+            Self::assembler(&table, cle)
+        };
+
+        let chrono = Chronotope {
+            room,
+            cell,
+            tick,
+            sealed: true,
+            entities,
+        };
+        tracing::debug!(entites = chrono.entities.len(), "chronotope scelle");
+        self.diffuseur.diffuser(&chrono);
+        chrono
     }
 
-    fn lire(&self, _room: RoomId, _cells: &[CellId], _tick: Tick) -> Vec<Chronotope> {
-        todo!("NaiveRowStore::lire")
+    #[tracing::instrument(level = "trace", skip_all, fields(room = room.0, cells = cells.len(), tick = tick.0))]
+    fn lire(&self, room: RoomId, cells: &[CellId], tick: Tick) -> Vec<Chronotope> {
+        let table = self.table.lock();
+        cells
+            .iter()
+            .filter(|cell| table.scelles.contains(&(room, **cell, tick)))
+            .map(|cell| Chronotope {
+                room,
+                cell: *cell,
+                tick,
+                sealed: true,
+                entities: Self::assembler(&table, (room, *cell, tick)),
+            })
+            .collect()
     }
 
-    fn observer(&self, _room: RoomId, _cells: &[CellId]) -> Receiver<Chronotope> {
-        todo!("NaiveRowStore::observer")
+    #[tracing::instrument(level = "debug", skip_all, fields(room = room.0, cells = cells.len()))]
+    fn observer(&self, room: RoomId, cells: &[CellId]) -> Receiver<Chronotope> {
+        self.diffuseur.abonner(room, cells)
     }
 }

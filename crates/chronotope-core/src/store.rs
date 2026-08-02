@@ -1,6 +1,6 @@
 use crossbeam_channel::Receiver;
 
-use crate::{Chronotope, CellId, EntityId, Pose, RoomId, Tick, WriteError};
+use crate::{CellId, Chronotope, EntityId, Pose, RoomId, Tick, WriteError};
 
 /// Le contrat de stockage fige (§5.9 du document source). Deux implementations
 /// le respectent dans ce crate :
