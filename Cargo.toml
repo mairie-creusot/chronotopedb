@@ -1,0 +1,27 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/chronotope-core",
+    "crates/chronotope-directory",
+    "crates/chronotope-sim",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["ybanas"]
+repository = "https://github.com/mairie-creusot/chronotopedb"
+
+[workspace.dependencies]
+chronotope-core = { path = "crates/chronotope-core" }
+chronotope-directory = { path = "crates/chronotope-directory" }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+
+[profile.bench]
+opt-level = 3
+lto = "thin"
+debug = true

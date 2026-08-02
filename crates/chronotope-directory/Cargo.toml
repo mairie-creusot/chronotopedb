@@ -1,0 +1,15 @@
+[package]
+name = "chronotope-directory"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Annuaire entite -> (noeud, cellule) et migration sans transfert d'etat. Voir docs/chronotope.md §5.3."
+
+[dependencies]
+chronotope-core.workspace = true
+parking_lot = "0.12"
+thiserror = "1"
+
+[dev-dependencies]
+proptest = "1"

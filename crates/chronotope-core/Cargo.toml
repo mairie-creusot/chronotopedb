@@ -1,0 +1,21 @@
+[package]
+name = "chronotope-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Substrat spatio-temporel a horizon scelle : unite de stockage cellule-tick, pour l'etat haute-frequence a cardinalite d'ecriture 1 (poses d'avatars). Voir docs/chronotope.md."
+
+[dependencies]
+crossbeam-channel = "0.5"
+parking_lot = "0.12"
+thiserror = "1"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+proptest = "1"
+rand = "0.8"
+
+[[bench]]
+name = "h1_frame_vs_row"
+harness = false
