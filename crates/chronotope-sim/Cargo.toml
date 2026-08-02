@@ -6,9 +6,18 @@ license.workspace = true
 authors.workspace = true
 description = "Harnais de simulation multi-noeud en memoire : trajectoires d'entites, franchissements de frontiere, charge variable. Sert a tester H3 et H4 sans reseau reel."
 
+[features]
+# Branche `Routeur` sur le vrai `chronotope_directory::Directory`. Desactivee
+# par defaut : elle ne compile que si `chronotope-directory` re-exporte
+# `NodeId` (sans quoi `Location` est inconstructible hors du crate). Voir le
+# module doc de `src/routage.rs`.
+annuaire-reel = []
+
 [dependencies]
 chronotope-core.workspace = true
 chronotope-directory.workspace = true
 rand = "0.8"
+tracing = "0.1"
 
 [dev-dependencies]
+crossbeam-channel = "0.5"
