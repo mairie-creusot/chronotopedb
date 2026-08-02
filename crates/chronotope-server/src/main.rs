@@ -15,8 +15,9 @@
 //! du depot (`docs/conventions.md`), donc c'est ici, et seulement ici, que
 //! l'acces est controle.
 
+use std::collections::HashMap;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
 use axum::{
@@ -46,6 +47,15 @@ struct AppState {
     engine: ChronotopeEngine,
     secret: String,
     metrics: Metrics,
+    /// Dernier tick scelle connu, par salle — c'est ce qui permet a un
+    /// appelant qui n'a jamais vu le compteur de tick de `chronotope-sim`/
+    /// `ws-server` (processus separe) de faire `GET /read` sans le
+    /// fournir (voir `ReadQuery::tick` et `read`). Vit ici, a la frontiere
+    /// HTTP, et pas dans `chronotope-core` : ce n'est pas une propriete du
+    /// moteur (dont le contrat `ChronotopeStore` reste fige a 4 operations),
+    /// juste une commodite pour les appelants HTTP qui n'ont pas leur propre
+    /// canal pour apprendre "quel est le dernier tick scelle".
+    latest_sealed: RwLock<HashMap<u32, u64>>,
 }
 
 #[tokio::main]
@@ -78,6 +88,7 @@ async fn main() {
         engine: ChronotopeEngine::new(Horizon::default()),
         secret,
         metrics: Metrics::default(),
+        latest_sealed: RwLock::new(HashMap::new()),
     });
 
     let port: u16 = std::env::var("PORT")
@@ -383,6 +394,13 @@ async fn seal(State(state): State<Arc<AppState>>, Json(req): Json<SealRequest>) 
         let chronotope = state
             .engine
             .sceller(RoomId(req.room), CellId(req.cell), Tick(req.tick));
+        state
+            .latest_sealed
+            .write()
+            .unwrap()
+            .entry(req.room)
+            .and_modify(|t| *t = (*t).max(req.tick))
+            .or_insert(req.tick);
         tracing::debug!(
             entity_count = chronotope.entities.len(),
             "chronotope scelle"
@@ -408,7 +426,12 @@ async fn seal(State(state): State<Arc<AppState>>, Json(req): Json<SealRequest>) 
 struct ReadQuery {
     room: u32,
     cells: String, // liste separee par des virgules
-    tick: u64,
+    /// Omis : resolu au dernier tick scelle connu pour cette salle (voir
+    /// `AppState::latest_sealed`) — c'est le mode que `pawchat` (un
+    /// processus separe de celui qui scelle) utilise : il n'a aucun canal
+    /// pour connaitre le compteur de tick interne de l'appelant qui ecrit.
+    /// Fourni explicitement : comportement inchange (retrocompatible).
+    tick: Option<u64>,
 }
 
 #[tracing::instrument(
@@ -432,25 +455,67 @@ async fn read(State(state): State<Arc<AppState>>, Query(q): Query<ReadQuery>) ->
                 .into_response(),
         )
     } else {
-        // Meme politique que le parsing : une valeur hors domaine est aussi
-        // silencieusement ecartee (elle ne designerait de toute facon aucune
-        // cellule reelle) plutot que de faire paniquer le moteur.
-        let cells: Vec<CellId> = q
-            .cells
-            .split(',')
-            .filter_map(|s| s.trim().parse::<u32>().ok())
-            .filter(|&c| u64::from(c) < CELLULES_PAR_SALLE)
-            .map(CellId)
-            .collect();
-        if cells.is_empty() {
-            tracing::debug!("aucune cellule valide dans la requete — lecture vide");
+        let tick_resolu = q
+            .tick
+            .or_else(|| state.latest_sealed.read().unwrap().get(&q.room).copied());
+
+        match tick_resolu {
+            None => {
+                tracing::debug!("aucun tick scelle connu pour cette salle — lecture vide");
+                (
+                    true,
+                    Json(serde_json::json!({
+                        "room": q.room,
+                        "tick": serde_json::Value::Null,
+                        "count": 0,
+                        "cells": [],
+                    }))
+                    .into_response(),
+                )
+            }
+            Some(tick) => {
+                // Meme politique que le parsing : une valeur hors domaine est
+                // aussi silencieusement ecartee (elle ne designerait de toute
+                // facon aucune cellule reelle) plutot que de faire paniquer
+                // le moteur.
+                let cells: Vec<CellId> = q
+                    .cells
+                    .split(',')
+                    .filter_map(|s| s.trim().parse::<u32>().ok())
+                    .filter(|&c| u64::from(c) < CELLULES_PAR_SALLE)
+                    .map(CellId)
+                    .collect();
+                if cells.is_empty() {
+                    tracing::debug!("aucune cellule valide dans la requete — lecture vide");
+                }
+                let chronotopes = state.engine.lire(RoomId(q.room), &cells, Tick(tick));
+                let total: usize = chronotopes.iter().map(|c| c.entities.len()).sum();
+                tracing::trace!(count = total, "lecture terminee");
+                let cells_json: Vec<serde_json::Value> = chronotopes
+                    .iter()
+                    .map(|c| {
+                        serde_json::json!({
+                            "cell": c.cell.0,
+                            "entities": c.entities.iter().map(|(e, p)| serde_json::json!({
+                                "entity": e.0,
+                                "pos": p.pos,
+                                "yaw": p.yaw,
+                            })).collect::<Vec<_>>(),
+                        })
+                    })
+                    .collect();
+                (
+                    true,
+                    Json(serde_json::json!({
+                        "room": q.room,
+                        "tick": tick,
+                        "count": total,
+                        "cells": cells_json,
+                    }))
+                    .into_response(),
+                )
+            }
         }
-        let chronotopes = state.engine.lire(RoomId(q.room), &cells, Tick(q.tick));
-        tracing::trace!(count = chronotopes.len(), "lecture terminee");
-        (
-            true,
-            Json(serde_json::json!({ "count": chronotopes.len() })).into_response(),
-        )
     };
 
     state.metrics.read.observer(succes, debut.elapsed());
@@ -472,6 +537,7 @@ mod tests {
             engine: ChronotopeEngine::new(Horizon::default()),
             secret: SECRET_TEST.to_string(),
             metrics: Metrics::default(),
+            latest_sealed: RwLock::new(HashMap::new()),
         }))
     }
 
@@ -976,6 +1042,114 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let json = body_json(response).await;
         assert_eq!(json["count"], 1);
+        assert_eq!(json["tick"], 1);
+        assert_eq!(json["cells"][0]["cell"], 1);
+        assert_eq!(json["cells"][0]["entities"][0]["entity"], 1);
+        assert_eq!(
+            json["cells"][0]["entities"][0]["pos"],
+            serde_json::json!([1.0, 2.0, 3.0])
+        );
+        assert_eq!(json["cells"][0]["entities"][0]["yaw"], 0.5);
+    }
+
+    // --- decouverte de tick sur /read (tick omis) ---------------------------
+
+    #[tokio::test]
+    async fn read_sans_tick_resout_le_dernier_tick_scelle() {
+        let application = app();
+
+        application
+            .clone()
+            .oneshot(post(
+                "/write",
+                serde_json::json!({"room":5,"cell":5,"tick":7,"entity":9,"pos":[1.0,0.0,0.0],"yaw":0.0}),
+            ))
+            .await
+            .unwrap();
+        application
+            .clone()
+            .oneshot(post(
+                "/seal",
+                serde_json::json!({"room":5,"cell":5,"tick":7}),
+            ))
+            .await
+            .unwrap();
+
+        let response = application
+            .oneshot(get_authentifie("/read?room=5&cells=5"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let json = body_json(response).await;
+        assert_eq!(json["tick"], 7, "{json:?}");
+        assert_eq!(json["count"], 1);
+        assert_eq!(json["cells"][0]["entities"][0]["entity"], 9);
+    }
+
+    /// Une salle qui n'a JAMAIS ete scellee ne doit jamais faire echouer
+    /// `/read` — sans ca, un appelant qui lit avant que le premier
+    /// scellement n'arrive (course normale au demarrage) recevrait une
+    /// erreur au lieu d'une reponse vide et propre.
+    #[tokio::test]
+    async fn read_sans_tick_sur_une_salle_jamais_scellee_renvoie_vide() {
+        let response = app()
+            .oneshot(get_authentifie("/read?room=6&cells=0"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let json = body_json(response).await;
+        assert_eq!(json["tick"], serde_json::Value::Null);
+        assert_eq!(json["count"], 0);
+        assert_eq!(json["cells"], serde_json::json!([]));
+    }
+
+    /// Le tick explicite reste prioritaire sur la decouverte automatique —
+    /// retrocompatibilite complete avec l'ancien comportement.
+    #[tokio::test]
+    async fn read_avec_tick_explicite_ignore_le_dernier_tick_scelle() {
+        let application = app();
+
+        application
+            .clone()
+            .oneshot(post(
+                "/write",
+                serde_json::json!({"room":8,"cell":0,"tick":1,"entity":1,"pos":[0.0,0.0,0.0],"yaw":0.0}),
+            ))
+            .await
+            .unwrap();
+        application
+            .clone()
+            .oneshot(post(
+                "/seal",
+                serde_json::json!({"room":8,"cell":0,"tick":1}),
+            ))
+            .await
+            .unwrap();
+        application
+            .clone()
+            .oneshot(post(
+                "/write",
+                serde_json::json!({"room":8,"cell":0,"tick":2,"entity":2,"pos":[0.0,0.0,0.0],"yaw":0.0}),
+            ))
+            .await
+            .unwrap();
+        application
+            .clone()
+            .oneshot(post(
+                "/seal",
+                serde_json::json!({"room":8,"cell":0,"tick":2}),
+            ))
+            .await
+            .unwrap();
+
+        // Demande explicitement l'ANCIEN tick (1), pas le dernier (2).
+        let response = application
+            .oneshot(get_authentifie("/read?room=8&cells=0&tick=1"))
+            .await
+            .unwrap();
+        let json = body_json(response).await;
+        assert_eq!(json["tick"], 1);
+        assert_eq!(json["cells"][0]["entities"][0]["entity"], 1);
     }
 
     #[tokio::test]
