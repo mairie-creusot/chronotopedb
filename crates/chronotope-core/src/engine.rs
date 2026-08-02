@@ -64,6 +64,16 @@ struct Slot {
     tick: u64,
     etat: Etat,
     journal: Vec<(EntityId, Pose)>,
+    /// Entrees poussees depuis la derniere compaction. Sert de declencheur a
+    /// la place de `journal.len()` : une fois `journal.len()` au-dessus de
+    /// `SEUIL_COMPACTION`, un journal sans doublons (beaucoup d'entites
+    /// distinctes dans une meme cellule, le regime agglomere que §1 vise
+    /// justement a rendre bon marche) ne raccourcit jamais sous compaction —
+    /// re-verifier `journal.len()` a chaque ecriture y redeclenche alors une
+    /// compaction complete a CHAQUE appel, donc un cout quadratique en le
+    /// nombre d'entites. Compter depuis la derniere compaction borne la
+    /// frequence des passes independamment du taux de doublons.
+    depuis_compaction: usize,
 }
 
 impl Slot {
@@ -72,6 +82,7 @@ impl Slot {
             tick: 0,
             etat: Etat::Vide,
             journal: Vec::new(),
+            depuis_compaction: 0,
         }
     }
 
@@ -79,6 +90,12 @@ impl Slot {
         self.journal.clear();
         self.tick = tick;
         self.etat = Etat::Ouvert;
+        self.depuis_compaction = 0;
+    }
+
+    fn inscrire(&mut self, entity: EntityId, pose: Pose) {
+        self.journal.push((entity, pose));
+        self.depuis_compaction += 1;
     }
 
     /// Applique le LWW du §4 : trie par `EntityId` en conservant, pour chaque
@@ -89,6 +106,7 @@ impl Slot {
         self.journal.reverse();
         self.journal.sort_by_key(|(entite, _)| *entite);
         self.journal.dedup_by_key(|(entite, _)| *entite);
+        self.depuis_compaction = 0;
     }
 }
 
@@ -270,22 +288,22 @@ impl ChronotopeStore for ChronotopeEngine {
         self.avec_slot(room, cell, tick, |slot| match slot.etat {
             Etat::Vide => {
                 slot.recycler(tick.0);
-                slot.journal.push((entity, pose));
+                slot.inscrire(entity, pose);
                 Ok(())
             }
             _ if slot.tick < tick.0 => {
                 slot.recycler(tick.0);
-                slot.journal.push((entity, pose));
+                slot.inscrire(entity, pose);
                 Ok(())
             }
             _ if slot.tick > tick.0 || slot.etat == Etat::Scelle => {
                 Err(WriteError::AlreadySealed(room, cell, tick))
             }
             _ => {
-                if slot.journal.len() >= SEUIL_COMPACTION {
+                if slot.depuis_compaction >= SEUIL_COMPACTION {
                     slot.compacter();
                 }
-                slot.journal.push((entity, pose));
+                slot.inscrire(entity, pose);
                 Ok(())
             }
         })
@@ -428,6 +446,54 @@ mod tests {
             scelle.entities,
             vec![(EntityId(0), pose((SEUIL_COMPACTION * 4 - 1) as f32))]
         );
+    }
+
+    #[test]
+    fn compaction_reste_correcte_avec_bavards_et_distinctes_entrelaces() {
+        let moteur = ChronotopeEngine::new(Horizon::default());
+        let (room, cell, tick) = (RoomId(0), CellId(1), Tick(0));
+        for i in 0..(SEUIL_COMPACTION * 3) {
+            moteur
+                .ecrire(room, cell, tick, EntityId(0), pose(i as f32))
+                .unwrap();
+            moteur
+                .ecrire(room, cell, tick, EntityId((i + 1) as u32), pose(i as f32))
+                .unwrap();
+        }
+        let scelle = moteur.sceller(room, cell, tick);
+        assert_eq!(scelle.entities.len(), SEUIL_COMPACTION * 3 + 1);
+        assert_eq!(
+            scelle.entities[0],
+            (EntityId(0), pose((SEUIL_COMPACTION * 3 - 1) as f32))
+        );
+    }
+
+    /// Regression : declencher la compaction sur `journal.len() >=
+    /// SEUIL_COMPACTION` plutot que sur les entrees ecrites DEPUIS la
+    /// derniere compaction recompactait tout le journal a CHAQUE ecriture
+    /// une fois le seuil franchi. Sans doublon a eliminer (le regime
+    /// agglomere que §1 vise, beaucoup d'entites distinctes), cela degradait
+    /// en O(n^2) : mesure sur ce moteur, 8000 entites distinctes prenaient
+    /// ~600ms avant le correctif contre quelques ms apres. Le seuil ci-dessous
+    /// laisse une marge large (10-100x) pour ne jamais etre un faux positif
+    /// en CI tout en detectant un retour du comportement quadratique.
+    #[test]
+    fn compaction_reste_amortie_sur_un_afflux_d_entites_distinctes() {
+        let moteur = ChronotopeEngine::new(Horizon::default());
+        let (room, cell, tick) = (RoomId(0), CellId(2), Tick(0));
+        let debut = std::time::Instant::now();
+        for i in 0..20_000u32 {
+            moteur
+                .ecrire(room, cell, tick, EntityId(i), pose(i as f32))
+                .unwrap();
+        }
+        assert!(
+            debut.elapsed() < std::time::Duration::from_secs(1),
+            "20 000 ecritures distinctes ont pris {:?} : la compaction s'est probablement remise \
+             a re-trier tout le journal a chaque ecriture (regression O(n^2))",
+            debut.elapsed()
+        );
+        assert_eq!(moteur.sceller(room, cell, tick).entities.len(), 20_000);
     }
 
     #[test]

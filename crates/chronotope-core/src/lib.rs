@@ -60,8 +60,11 @@ pub struct CellId(pub u32);
 pub struct Tick(pub u64);
 
 impl Tick {
+    /// Sature a `u64::MAX` plutot que de deborder : un compteur logique qui
+    /// reviendrait a 0 romprait silencieusement la monotonie que §5.7
+    /// suppose acquise (une salle ne "recule" jamais dans le temps).
     pub fn next(self) -> Tick {
-        Tick(self.0 + 1)
+        Tick(self.0.saturating_add(1))
     }
 }
 
@@ -128,4 +131,15 @@ impl Default for Horizon {
 pub enum WriteError {
     #[error("chronotope ({0:?}, {1:?}, {2:?}) deja scelle — ecriture rejetee")]
     AlreadySealed(RoomId, CellId, Tick),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tick_next_sature_au_lieu_de_deborder() {
+        assert_eq!(Tick(u64::MAX).next(), Tick(u64::MAX));
+        assert_eq!(Tick(41).next(), Tick(42));
+    }
 }
