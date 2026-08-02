@@ -402,6 +402,140 @@ mod tests {
         assert!(annuaire.migrer(EntityId(1), a, Tick(3)).is_err());
     }
 
+    /// Va au-dela de "ne panique pas" : un tick regressif, meme tres en
+    /// arriere, ne doit ni contourner l'hysteresis ni produire un
+    /// `ticks_restants` fantome calcule sur un ecart negatif. `saturating_sub`
+    /// force l'ecoule a 0 pour tout tick < derniere migration, ce qui est le
+    /// resultat le plus conservateur possible (pas seulement "qui ne panique
+    /// pas") : on refuse comme si aucun temps ne s'etait ecoule.
+    #[test]
+    fn tick_regressif_est_refuse_de_facon_correcte_pas_seulement_non_panique() {
+        let annuaire = Directory::avec_hysteresis(Hysteresis::ticks(10));
+        let a = loc(1, 10);
+        let b = loc(2, 11);
+        annuaire.inscrire(EntityId(1), a, Tick(1_000));
+        assert!(annuaire.migrer(EntityId(1), b, Tick(1_010)).is_ok());
+
+        // Rejeu d'un tick anterieur meme a l'inscription : refuse, et l'etat
+        // reste celui de la derniere migration acceptee.
+        let refus = annuaire.migrer(EntityId(1), a, Tick(0)).unwrap_err();
+        assert_eq!(
+            refus,
+            RefusHysteresis {
+                entite: EntityId(1),
+                dest: a,
+                ticks_restants: 10,
+            }
+        );
+        assert_eq!(annuaire.locate(EntityId(1)), Some(b));
+    }
+
+    /// `at = 0` rejoue en boucle apres une premiere migration ne doit ni
+    /// paniquer, ni faire deriver l'horloge d'hysteresis, ni finir par
+    /// passer par usure : le refus reste identique a chaque appel.
+    #[test]
+    fn tick_zero_repete_des_milliers_de_fois_ne_corrompt_pas_l_etat() {
+        let annuaire = Directory::avec_hysteresis(Hysteresis::ticks(5));
+        let a = loc(1, 10);
+        let b = loc(2, 11);
+        let c = loc(3, 12);
+        annuaire.inscrire(EntityId(1), a, Tick(0));
+        // Consomme le seul passage gratuit (aucune precedente a espacer).
+        assert!(annuaire.migrer(EntityId(1), b, Tick(0)).is_ok());
+
+        for _ in 0..5_000 {
+            assert_eq!(
+                annuaire.migrer(EntityId(1), c, Tick(0)),
+                Err(RefusHysteresis {
+                    entite: EntityId(1),
+                    dest: c,
+                    ticks_restants: 5,
+                })
+            );
+        }
+        assert_eq!(annuaire.locate(EntityId(1)), Some(b));
+    }
+
+    /// `at = u64::MAX` ne provoque aucun debordement arithmetique, et
+    /// verrouille correctement l'entite : aucun tick fini ne peut plus
+    /// jamais depasser u64::MAX pour satisfaire l'hysteresis.
+    #[test]
+    fn tick_u64_max_ne_deborde_pas_et_verrouille_les_migrations_suivantes() {
+        let annuaire = Directory::avec_hysteresis(Hysteresis::ticks(4));
+        let a = loc(1, 10);
+        let b = loc(2, 11);
+        annuaire.inscrire(EntityId(1), a, Tick(u64::MAX));
+        assert!(annuaire.migrer(EntityId(1), b, Tick(u64::MAX)).is_ok());
+
+        assert!(annuaire.migrer(EntityId(1), a, Tick(u64::MAX - 1)).is_err());
+        assert!(annuaire.migrer(EntityId(1), a, Tick(0)).is_err());
+        assert!(annuaire.migrer(EntityId(1), a, Tick(u64::MAX)).is_err());
+        assert_eq!(annuaire.locate(EntityId(1)), Some(b));
+    }
+
+    /// Une hysteresis a `u64::MAX` n'empeche pas la premiere migration
+    /// (gratuite), et le calcul de `ticks_restants` pour les suivantes ne
+    /// deborde jamais meme quand l'ecart requis est le plus grand possible.
+    #[test]
+    fn hysteresis_u64_max_ne_deborde_pas() {
+        let annuaire = Directory::avec_hysteresis(Hysteresis::ticks(u64::MAX));
+        let a = loc(1, 10);
+        let b = loc(2, 11);
+        annuaire.inscrire(EntityId(1), a, Tick(0));
+        assert!(annuaire.migrer(EntityId(1), b, Tick(1)).is_ok());
+
+        let refus = annuaire.migrer(EntityId(1), a, Tick(u64::MAX)).unwrap_err();
+        assert_eq!(refus.ticks_restants, 1);
+    }
+
+    #[test]
+    fn hysteresis_ticks_zero_se_comporte_comme_aucune() {
+        assert_eq!(Hysteresis::ticks(0), Hysteresis::aucune());
+    }
+
+    /// Plusieurs refus consecutifs, vers des destinations differentes, ne
+    /// doivent ni deplacer l'entite ni relancer l'horloge d'hysteresis : la
+    /// migration passe exactement au tick attendu depuis la DERNIERE
+    /// migration effective, jamais depuis une tentative refusee.
+    #[test]
+    fn un_refus_ne_modifie_ni_l_emplacement_ni_l_horloge_d_hysteresis() {
+        let annuaire = Directory::avec_hysteresis(Hysteresis::ticks(10));
+        let a = loc(1, 10);
+        let b = loc(2, 11);
+        let c = loc(3, 12);
+        annuaire.inscrire(EntityId(1), a, Tick(0));
+        assert!(annuaire.migrer(EntityId(1), b, Tick(0)).is_ok());
+
+        assert!(annuaire.migrer(EntityId(1), a, Tick(3)).is_err());
+        assert!(annuaire.migrer(EntityId(1), c, Tick(5)).is_err());
+        assert_eq!(annuaire.locate(EntityId(1)), Some(b));
+
+        assert!(annuaire.migrer(EntityId(1), c, Tick(9)).is_err());
+        assert!(annuaire.migrer(EntityId(1), c, Tick(10)).is_ok());
+    }
+
+    /// Rejouer la destination courante des milliers de fois reste un no-op
+    /// et ne relance jamais l'horloge d'hysteresis (`Migration::Inchangee`
+    /// est cense etre gratuit et sans effet de bord — voir la doc de
+    /// `migrer`).
+    #[test]
+    fn spam_de_la_destination_courante_reste_sans_effet_a_grande_echelle() {
+        let annuaire = Directory::avec_hysteresis(Hysteresis::ticks(10));
+        let a = loc(1, 10);
+        let b = loc(2, 11);
+        annuaire.inscrire(EntityId(1), a, Tick(0));
+        assert!(annuaire.migrer(EntityId(1), b, Tick(0)).is_ok());
+
+        for t in 1..5_000u64 {
+            assert_eq!(
+                annuaire.migrer(EntityId(1), b, Tick(t)),
+                Ok(Migration::Inchangee)
+            );
+        }
+        assert!(annuaire.migrer(EntityId(1), a, Tick(9)).is_err());
+        assert!(annuaire.migrer(EntityId(1), a, Tick(10)).is_ok());
+    }
+
     #[test]
     fn inscrire_replace_sans_hysteresis_et_renvoie_le_precedent() {
         let annuaire = Directory::avec_hysteresis(Hysteresis::ticks(100));
