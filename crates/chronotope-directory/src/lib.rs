@@ -23,13 +23,25 @@
 //! un delai minimum entre deux migrations de la meme entite) et le prouver
 //! par un test qui simule une trajectoire le long d'une frontiere.
 //!
+//! Mecanisme retenu ici : le delai minimum entre deux migrations de la meme
+//! entite ([`Hysteresis`]), plutot que le couple rayon d'entree / rayon de
+//! sortie. Un annuaire ne connait que des `CellId`, jamais une geometrie ; il
+//! ne peut donc pas comparer des rayons sans dependre du decoupage spatial,
+//! ce qui remonterait une dependance dans le mauvais sens
+//! (`docs/conventions.md`, "Modularite"). Le tick, lui, est deja fourni par
+//! l'appelant et rend l'hysteresis deterministe et rejouable.
+//!
 //! ## Ce que ce crate doit prouver (H3)
 //!
 //! "La migration sans transfert n'introduit pas d'artefact" — refutee si un
 //! taux de glitch superieur a une bascule d'autorite classique (a la
 //! SpatialOS) est observe au franchissement de frontiere. Voir `tests/`
-//! pour le harnais de simulation correspondant.
+//! pour le harnais de simulation correspondant :
+//! `tests/h3_thrashing.rs` (comparaison avec / sans hysteresis sur la meme
+//! trajectoire), `tests/migration_o1.rs` (cout de migration independant de
+//! l'occupation de la cellule destination) et `tests/proptest_annuaire.rs`
+//! (une entite a toujours exactement un emplacement).
 
 mod directory;
 
-pub use directory::{Directory, Location};
+pub use directory::{Directory, Hysteresis, Location, Migration, NodeId, RefusHysteresis};
