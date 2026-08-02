@@ -40,8 +40,14 @@ RUN cargo build --release -p chronotope-server --locked --target x86_64-unknown-
 # raisonnement que le Dockerfile.pawchat de SpacetimeDB, verifie ici plutot
 # que suppose (aucune dependance TLS dans Cargo.toml de chronotope-server).
 FROM alpine:3.20 AS runtime
+RUN addgroup -S chronotope && adduser -S -G chronotope chronotope
 COPY --from=builder /usr/src/app/target/x86_64-unknown-linux-musl/release/chronotope-server /usr/local/bin/
 
 EXPOSE 3200
 ENV RUST_LOG=info
+USER chronotope
+# wget vient de busybox, deja present dans l'image de base alpine:3.20 —
+# aucun paquet supplementaire, donc aucun cout sur le budget de 80 Mo.
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:3200/health || exit 1
 ENTRYPOINT ["chronotope-server"]
