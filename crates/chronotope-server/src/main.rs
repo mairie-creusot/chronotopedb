@@ -294,20 +294,21 @@ struct WriteResponse {
     error: Option<String>,
 }
 
-/// `debug`, pas `trace` : une requete HTTP est deja une decision arrivee a
-/// la frontiere (voir `docs/conventions.md`, "niveaux disciplines" — le
-/// detail d'implementation individuel, lui, est trace par
-/// `chronotope_core::engine::ecrire` en dessous). Les champs de domaine sont
-/// sur le span des le depart : un `grep` sur `room=42` retrouve TOUTE
-/// l'activite de cette salle, succes ET echecs, sans avoir a recouper des
+/// `info`, pas `debug` : chaque requete entrante et son issue (succes ou
+/// echec) doivent etre visibles avec le niveau par defaut (`RUST_LOG=info`),
+/// sans avoir a relancer le service avec un filtre plus permissif pour
+/// observer du trafic reel. Les champs de domaine sont sur le span des le
+/// depart : un `grep` sur `room=42` retrouve TOUTE l'activite de cette
+/// salle, requete entrante, succes ET echecs, sans avoir a recouper des
 /// lignes eparses.
 #[tracing::instrument(
-    level = "debug",
+    level = "info",
     skip_all,
     fields(room = req.room, cell = req.cell, tick = req.tick, entity = req.entity)
 )]
 async fn write(State(state): State<Arc<AppState>>, Json(req): Json<WriteRequest>) -> Response {
     let debut = Instant::now();
+    tracing::info!("requete entrante");
 
     let (succes, reponse) = if room_ou_cell_hors_domaine(req.room, req.cell) {
         tracing::warn!("ecriture refusee — room ou cell hors domaine");
@@ -357,6 +358,9 @@ async fn write(State(state): State<Arc<AppState>>, Json(req): Json<WriteRequest>
         }
     };
 
+    if succes {
+        tracing::info!(duree_ms = debut.elapsed().as_millis(), "ecriture reussie");
+    }
     state.metrics.write.observer(succes, debut.elapsed());
     reponse
 }
@@ -369,12 +373,13 @@ struct SealRequest {
 }
 
 #[tracing::instrument(
-    level = "debug",
+    level = "info",
     skip_all,
     fields(room = req.room, cell = req.cell, tick = req.tick)
 )]
 async fn seal(State(state): State<Arc<AppState>>, Json(req): Json<SealRequest>) -> Response {
     let debut = Instant::now();
+    tracing::info!("requete entrante");
 
     let (succes, reponse) = if room_ou_cell_hors_domaine(req.room, req.cell) {
         tracing::warn!("scellement refuse — room ou cell hors domaine");
@@ -401,8 +406,9 @@ async fn seal(State(state): State<Arc<AppState>>, Json(req): Json<SealRequest>) 
             .entry(req.room)
             .and_modify(|t| *t = (*t).max(req.tick))
             .or_insert(req.tick);
-        tracing::debug!(
+        tracing::info!(
             entity_count = chronotope.entities.len(),
+            duree_ms = debut.elapsed().as_millis(),
             "chronotope scelle"
         );
         (
@@ -435,12 +441,13 @@ struct ReadQuery {
 }
 
 #[tracing::instrument(
-    level = "debug",
+    level = "info",
     skip_all,
     fields(room = q.room, tick = q.tick, cells_demandees = q.cells.as_str())
 )]
 async fn read(State(state): State<Arc<AppState>>, Query(q): Query<ReadQuery>) -> Response {
     let debut = Instant::now();
+    tracing::info!("requete entrante");
 
     let (succes, reponse) = if q.room >= SALLES_MAX {
         tracing::warn!("lecture refusee — room hors domaine");
@@ -490,7 +497,11 @@ async fn read(State(state): State<Arc<AppState>>, Query(q): Query<ReadQuery>) ->
                 }
                 let chronotopes = state.engine.lire(RoomId(q.room), &cells, Tick(tick));
                 let total: usize = chronotopes.iter().map(|c| c.entities.len()).sum();
-                tracing::trace!(count = total, "lecture terminee");
+                tracing::info!(
+                    count = total,
+                    duree_ms = debut.elapsed().as_millis(),
+                    "lecture terminee"
+                );
                 let cells_json: Vec<serde_json::Value> = chronotopes
                     .iter()
                     .map(|c| {
